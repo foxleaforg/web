@@ -68,7 +68,7 @@ export function Navbar() {
             <>
               <NavLink href="/search">Search</NavLink>
               <NavLink href="/shelves">My Shelves</NavLink>
-              <NavLink href={`/users/${user.username}`}>Profile</NavLink>
+              <NavLink href="/profile">Profile</NavLink>
               <button
                 type="button"
                 onClick={handleLogout}
