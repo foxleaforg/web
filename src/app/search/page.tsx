@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { BookCard } from "@/components/BookCard";
@@ -195,15 +196,19 @@ export default function SearchPage() {
               <Section title="In Foxleaf">
                 <Grid>
                   {localResults.map(({ book }) => (
-                    <BookCard
+                    <Link
                       key={book.id}
-                      title={book.title}
-                      authors={book.authors.map((a) => a.name)}
-                      coverUrl={book.cover_url}
-                      pageCount={book.page_count}
-                      year={book.first_published}
-                      slug={book.slug}
-                    />
+                      href={`/books/${book.slug}`}
+                      className="block cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-500"
+                    >
+                      <BookCard
+                        title={book.title}
+                        authors={book.authors.map((a) => a.name)}
+                        coverUrl={book.cover_url}
+                        pageCount={book.page_count}
+                        year={book.first_published}
+                      />
+                    </Link>
                   ))}
                 </Grid>
               </Section>
@@ -217,20 +222,24 @@ export default function SearchPage() {
                     const isImporting = importing[book.ol_work_key];
                     if (importedBook) {
                       return (
-                        <BookCard
+                        <Link
                           key={book.ol_work_key}
-                          title={importedBook.title}
-                          authors={importedBook.authors.map((a) => a.name)}
-                          coverUrl={importedBook.cover_url}
-                          pageCount={importedBook.page_count}
-                          year={importedBook.first_published}
-                          slug={importedBook.slug}
-                          action={
-                            <span className="block w-full rounded-full bg-green-100 px-3 py-1.5 text-center text-xs font-medium text-green-800">
-                              Added ✓
-                            </span>
-                          }
-                        />
+                          href={`/books/${importedBook.slug}`}
+                          className="block cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-500"
+                        >
+                          <BookCard
+                            title={importedBook.title}
+                            authors={importedBook.authors.map((a) => a.name)}
+                            coverUrl={importedBook.cover_url}
+                            pageCount={importedBook.page_count}
+                            year={importedBook.first_published}
+                            action={
+                              <span className="block w-full rounded-full bg-green-100 px-3 py-1.5 text-center text-xs font-medium text-green-800">
+                                Added ✓
+                              </span>
+                            }
+                          />
+                        </Link>
                       );
                     }
                     return (
