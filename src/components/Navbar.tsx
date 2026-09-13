@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { clearTokens, getAccessToken } from "@/lib/auth";
+import { clearTokens, isLoggedIn } from "@/lib/auth";
 
 type Me = {
   username: string;
@@ -18,8 +18,7 @@ export function Navbar() {
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    const token = getAccessToken();
-    if (!token) {
+    if (!isLoggedIn()) {
       setUser(null);
       setChecked(true);
       return;
@@ -27,7 +26,7 @@ export function Navbar() {
 
     let cancelled = false;
     api
-      .get<Me>("/auth/me", token)
+      .get<Me>("/auth/me")
       .then((me) => {
         if (!cancelled) setUser(me);
       })
@@ -69,6 +68,7 @@ export function Navbar() {
               <NavLink href="/search">Search</NavLink>
               <NavLink href="/shelves">My Shelves</NavLink>
               <NavLink href="/profile">Profile</NavLink>
+              <NavLink href="/import">Import</NavLink>
               <button
                 type="button"
                 onClick={handleLogout}

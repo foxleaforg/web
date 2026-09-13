@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { BookCard } from "@/components/BookCard";
 import { apiFetch } from "@/lib/api";
-import { getAccessToken } from "@/lib/auth";
+import { isLoggedIn } from "@/lib/auth";
 
 type LocalAuthor = {
   id: string;
@@ -110,16 +110,28 @@ export default function SearchPage() {
   }, []);
 
   async function handleImport(book: OpenLibraryResult) {
-    const token = getAccessToken();
-    if (!token) {
+    if (!isLoggedIn()) {
       router.push("/login");
       return;
     }
     setImporting((s) => ({ ...s, [book.ol_work_key]: true }));
     try {
+      // Search results give authors as bare names; the import endpoint wants
+      // {name, ol_key} objects. Search has no per-author keys, and the backend
+      // treats an empty ol_key as "look this author up by name instead".
+      const payload = {
+        ol_work_key: book.ol_work_key,
+        title: book.title,
+        authors: book.authors.map((name) => ({ name, ol_key: "" })),
+        cover_url: book.cover_url ?? null,
+        page_count: book.page_count ?? null,
+        first_publish_year: book.first_publish_year ?? null,
+        isbn: null,
+      };
+
       const newBook = await apiFetch<LocalBook>(
         "/books/import/open-library",
-        { method: "POST", body: book, token },
+        { method: "POST", body: payload },
       );
       setImported((s) => ({ ...s, [book.ol_work_key]: newBook }));
     } catch (err) {

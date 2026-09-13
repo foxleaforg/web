@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { isLoggedIn } from "@/lib/auth";
 
 export type SpoilerSeverity = "minor" | "major" | "ending";
 
@@ -39,11 +40,9 @@ const SEVERITY_STYLES: Record<SpoilerSeverity, SeverityStyle> = {
 export function SpoilerBlock({
   spoilerBlockId,
   severity,
-  token,
 }: {
   spoilerBlockId: string;
   severity: SpoilerSeverity;
-  token: string | null;
 }) {
   const [content, setContent] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -53,7 +52,7 @@ export function SpoilerBlock({
   const style = SEVERITY_STYLES[severity] ?? SEVERITY_STYLES.major;
 
   async function handleReveal() {
-    if (!token) {
+    if (!isLoggedIn()) {
       setError("Log in to reveal spoilers.");
       return;
     }
@@ -66,7 +65,6 @@ export function SpoilerBlock({
     try {
       const data = await api.get<{ content: string }>(
         `/reviews/spoiler/${spoilerBlockId}/reveal`,
-        token,
       );
       setContent(data.content);
       setRevealed(true);

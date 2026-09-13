@@ -11,7 +11,6 @@ import {
   type ProfileDetail,
 } from "@/components/ProfileView";
 import { api } from "@/lib/api";
-import { getAccessToken } from "@/lib/auth";
 
 type Profile = ProfileDetail | PrivateProfile;
 
@@ -31,10 +30,10 @@ export default function PublicProfilePage() {
       setLoading(true);
       setError(null);
       setNotFound(false);
-      // Send the token if we have one — harmless for public endpoints.
-      const token = getAccessToken();
       try {
-        const data = await api.get<Profile>(`/users/${username}`, token);
+        // Public endpoint, but apiFetch still sends the token when there is
+        // one so the viewer sees their own private profile.
+        const data = await api.get<Profile>(`/users/${username}`);
         if (!cancelled) setProfile(data);
       } catch (err) {
         if (cancelled) return;

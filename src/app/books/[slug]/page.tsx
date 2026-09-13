@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { DNFReasonModal } from "@/components/DNFReasonModal";
 import { RatingInput } from "@/components/RatingInput";
 import {
   SpoilerBlock,
@@ -11,7 +12,7 @@ import {
 import { StatusBadge, type ReadingStatus } from "@/components/StatusBadge";
 import { StatusDropdown } from "@/components/StatusDropdown";
 import { api } from "@/lib/api";
-import { getAccessToken } from "@/lib/auth";
+import { isLoggedIn } from "@/lib/auth";
 
 type Author = { id: string; name: string; slug: string };
 type Genre = { id: string; name: string; slug: string };
@@ -48,6 +49,14 @@ type UserBook = {
   status: ReadingStatus;
 };
 
+type Shelf = {
+  id: string;
+  name: string;
+  slug: string;
+  shelf_type: "default" | "custom" | string;
+  book_count: number;
+};
+
 type MoodTag = {
   id: string;
   name: string;
@@ -81,7 +90,7 @@ export default function BookDetailPage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug;
 
-  const [token, setToken] = useState<string | null>(null);
+  const [loggedIn, setLoggedIn] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [book, setBook] = useState<BookDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -92,13 +101,22 @@ export default function BookDetailPage() {
   const [summary, setSummary] = useState<RatingSummary | null>(null);
   const [userBook, setUserBook] = useState<UserBook | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [myReview, setMyReview] = useState<Review | null>(null);
 
   const [savingRating, setSavingRating] = useState(false);
   const [shelfBusy, setShelfBusy] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
 
+  const [shelves, setShelves] = useState<Shelf[]>([]);
+  const [shelfMenuOpen, setShelfMenuOpen] = useState(false);
+  const [addingToShelf, setAddingToShelf] = useState(false);
+  const [shelfNotice, setShelfNotice] = useState<string | null>(null);
+
+  // Set once the dnf status PUT lands, which the reason endpoint requires.
+  const [dnfOpen, setDnfOpen] = useState(false);
+
   useEffect(() => {
-    setToken(getAccessToken());
+    setLoggedIn(isLoggedIn());
     setAuthChecked(true);
   }, []);
 
@@ -158,44 +176,52 @@ export default function BookDetailPage() {
 
   // If logged in, load the user's rating + shelf status for this book.
   useEffect(() => {
-    if (!book || !token) return;
+    if (!book || !loggedIn) return;
     let cancelled = false;
     (async () => {
       const ratingPromise = api
-        .get<Rating>(`/ratings/me/book/${book.id}`, token)
+        .get<Rating>(`/ratings/me/book/${book.id}`)
         .catch(() => null);
       const shelfPromise = api
-        .get<UserBook[]>("/shelves/books/all", token)
+        .get<UserBook[]>("/shelves/books/all")
         .catch<UserBook[]>(() => []);
-      const [r, ubs] = await Promise.all([ratingPromise, shelfPromise]);
+      const myReviewsPromise = api
+        .get<Review[]>("/reviews/me")
+        .catch<Review[]>(() => []);
+      const shelvesPromise = api
+        .get<Shelf[]>("/shelves/")
+        .catch<Shelf[]>(() => []);
+      const [r, ubs, mine, shelfList] = await Promise.all([
+        ratingPromise,
+        shelfPromise,
+        myReviewsPromise,
+        shelvesPromise,
+      ]);
       if (cancelled) return;
       setRating(r);
       const found = ubs.find((u) => u.book_id === book.id) ?? null;
       setUserBook(found);
+      setMyReview(mine.find((rev) => rev.book_id === book.id) ?? null);
+      setShelves(shelfList);
     })();
     return () => {
       cancelled = true;
     };
-  }, [book, token]);
+  }, [book, loggedIn]);
 
   async function handleRate(score: number) {
-    if (!book || !token) return;
+    if (!book) return;
     setSavingRating(true);
     setError(null);
     try {
       let next: Rating;
       if (rating) {
-        next = await api.put<Rating>(
-          `/ratings/${rating.id}`,
-          { score },
-          token,
-        );
+        next = await api.put<Rating>(`/ratings/${rating.id}`, { score });
       } else {
-        next = await api.post<Rating>(
-          "/ratings/rate",
-          { book_id: book.id, score },
-          token,
-        );
+        next = await api.post<Rating>("/ratings/rate", {
+          book_id: book.id,
+          score,
+        });
       }
       setRating(next);
       // Refresh aggregate.
@@ -213,15 +239,13 @@ export default function BookDetailPage() {
   }
 
   async function handleAddToLibrary() {
-    if (!book || !token) return;
+    if (!book) return;
     setShelfBusy(true);
     setError(null);
     try {
-      const ub = await api.post<UserBook>(
-        "/shelves/want-to-read/books",
-        { book_id: book.id },
-        token,
-      );
+      const ub = await api.post<UserBook>("/shelves/want-to-read/books", {
+        book_id: book.id,
+      });
       setUserBook(ub);
     } catch (err) {
       setError(
@@ -233,20 +257,51 @@ export default function BookDetailPage() {
   }
 
   async function handleStatusChange(next: ReadingStatus) {
-    if (!book || !token || !userBook) return;
+    if (!book || !userBook) return;
     const previous = userBook.status;
     setUserBook({ ...userBook, status: next });
     try {
-      await api.put(
-        `/shelves/books/${book.id}/status`,
-        { status: next },
-        token,
-      );
+      await api.put(`/shelves/books/${book.id}/status`, { status: next });
+      // The reason endpoint requires the dnf status to be committed first.
+      if (next === "dnf") {
+        setDnfOpen(true);
+      }
     } catch (err) {
       setUserBook({ ...userBook, status: previous });
       setError(
         err instanceof Error ? err.message : "Couldn't update status.",
       );
+    }
+  }
+
+  async function handleAddToShelf(shelf: Shelf) {
+    if (!book) return;
+    setAddingToShelf(true);
+    setShelfNotice(null);
+    setError(null);
+    try {
+      await api.post(`/shelves/${shelf.slug}/books`, { book_id: book.id });
+      setShelfNotice(`Added to ${shelf.name}`);
+      // Adding to a custom shelf also puts the book in the library, so pick up
+      // the user_book it created.
+      if (!userBook) {
+        const ubs = await api
+          .get<UserBook[]>("/shelves/books/all")
+          .catch<UserBook[]>(() => []);
+        setUserBook(ubs.find((u) => u.book_id === book.id) ?? null);
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Couldn't add to that shelf.";
+      // The API 409s when the book is already on the shelf — not worth an
+      // error banner.
+      setShelfNotice(
+        /already exists/i.test(message)
+          ? `Already on ${shelf.name}`
+          : message,
+      );
+    } finally {
+      setAddingToShelf(false);
     }
   }
 
@@ -290,6 +345,9 @@ export default function BookDetailPage() {
     );
   }
 
+  // Default shelves are driven by reading status, so only custom ones are
+  // worth offering here.
+  const customShelves = shelves.filter((s) => s.shelf_type !== "default");
   const description = book.description ?? "";
   const showDescToggle = description.length > DESCRIPTION_PREVIEW;
   const descText =
@@ -385,7 +443,7 @@ export default function BookDetailPage() {
         </div>
       </section>
 
-      {token ? (
+      {loggedIn ? (
         <section className="mt-12 rounded-3xl border border-stone-200 bg-white/70 p-6 shadow-sm">
           <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
             <div className="flex flex-col gap-3">
@@ -417,6 +475,69 @@ export default function BookDetailPage() {
                   {shelfBusy ? "Adding…" : "Add to Library"}
                 </button>
               )}
+
+              <div className="relative mt-1 self-start">
+                <button
+                  type="button"
+                  onClick={() => setShelfMenuOpen((v) => !v)}
+                  disabled={addingToShelf}
+                  aria-haspopup="menu"
+                  aria-expanded={shelfMenuOpen}
+                  className="inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-4 py-1.5 text-sm font-medium text-stone-800 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {addingToShelf ? "Adding…" : "Add to Shelf"}
+                  <span aria-hidden className="text-xs text-stone-500">
+                    ▾
+                  </span>
+                </button>
+
+                {shelfMenuOpen ? (
+                  <div
+                    role="menu"
+                    className="absolute left-0 z-20 mt-1.5 w-60 overflow-hidden rounded-2xl border border-stone-200 bg-white py-1 shadow-lg ring-1 ring-stone-900/5"
+                  >
+                    {customShelves.length === 0 ? (
+                      <p className="px-4 py-3 text-xs leading-relaxed text-stone-500">
+                        No custom shelves yet.{" "}
+                        <Link
+                          href="/shelves"
+                          className="font-medium text-stone-800 underline-offset-2 hover:underline"
+                        >
+                          Create one
+                        </Link>{" "}
+                        to group books your way.
+                      </p>
+                    ) : (
+                      customShelves.map((shelf) => (
+                        <button
+                          key={shelf.id}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setShelfMenuOpen(false);
+                            handleAddToShelf(shelf);
+                          }}
+                          className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm text-stone-700 transition-colors hover:bg-stone-100 hover:text-stone-900"
+                        >
+                          {shelf.name}
+                          <span className="text-xs text-stone-400">
+                            {shelf.book_count}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+              </div>
+
+              {shelfNotice ? (
+                <p
+                  role="status"
+                  className="self-start rounded-full bg-amber-100/80 px-3 py-1 text-xs font-medium text-amber-900 ring-1 ring-inset ring-amber-200/60"
+                >
+                  {shelfNotice}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-col gap-3 md:items-end">
@@ -437,12 +558,12 @@ export default function BookDetailPage() {
           </div>
 
           <div className="mt-6 border-t border-stone-200 pt-4">
-            <a
-              href="#reviews"
+            <Link
+              href={`/books/${book.slug}/review`}
               className="inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-4 py-1.5 text-sm font-medium text-stone-800 transition-colors hover:bg-stone-100"
             >
-              ✍️ Write a review
-            </a>
+              ✍️ {myReview ? "Edit Your Review" : "Write a Review"}
+            </Link>
           </div>
         </section>
       ) : (
@@ -487,28 +608,31 @@ export default function BookDetailPage() {
         ) : (
           <ul className="mt-5 flex flex-col gap-5">
             {reviews.map((review) => (
-              <ReviewCard key={review.id} review={review} token={token} />
+              <ReviewCard key={review.id} review={review} />
             ))}
           </ul>
         )}
       </section>
+
+      {dnfOpen ? (
+        <DNFReasonModal
+          bookId={book.id}
+          bookTitle={book.title}
+          isOpen
+          onClose={() => setDnfOpen(false)}
+        />
+      ) : null}
     </main>
   );
 }
 
-function ReviewCard({
-  review,
-  token,
-}: {
-  review: Review;
-  token: string | null;
-}) {
+function ReviewCard({ review }: { review: Review }) {
   const [helpfulCount, setHelpfulCount] = useState(review.helpful_count);
   const [marking, setMarking] = useState(false);
   const [markError, setMarkError] = useState<string | null>(null);
 
   async function handleHelpful() {
-    if (!token) {
+    if (!isLoggedIn()) {
       setMarkError("Log in to vote.");
       return;
     }
@@ -518,7 +642,6 @@ function ReviewCard({
       const data = await api.post<{ helpful_count: number }>(
         `/reviews/${review.id}/helpful`,
         {},
-        token,
       );
       setHelpfulCount(data.helpful_count);
     } catch (err) {
@@ -564,7 +687,7 @@ function ReviewCard({
       </header>
 
       <div className="mt-4">
-        <ReviewBody body={review.body} blocks={review.spoiler_blocks} token={token} />
+        <ReviewBody body={review.body} blocks={review.spoiler_blocks} />
       </div>
 
       {review.mood_tags.length > 0 ? (
@@ -604,11 +727,9 @@ function ReviewCard({
 function ReviewBody({
   body,
   blocks,
-  token,
 }: {
   body: string;
   blocks: SpoilerMeta[];
-  token: string | null;
 }) {
   const segments = useMemo(() => splitOnSpoilers(body, blocks), [body, blocks]);
 
@@ -632,7 +753,6 @@ function ReviewBody({
             key={seg.block.id}
             spoilerBlockId={seg.block.id}
             severity={seg.block.severity}
-            token={token}
           />
         ),
       )}
@@ -644,7 +764,6 @@ function ReviewBody({
             key={block.id}
             spoilerBlockId={block.id}
             severity={block.severity}
-            token={token}
           />
         ))}
     </div>

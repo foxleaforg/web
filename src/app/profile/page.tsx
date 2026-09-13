@@ -7,7 +7,7 @@ import {
   type ProfileDetail,
 } from "@/components/ProfileView";
 import { api } from "@/lib/api";
-import { getAccessToken } from "@/lib/auth";
+import { isLoggedIn } from "@/lib/auth";
 
 export default function MyProfilePage() {
   const router = useRouter();
@@ -16,15 +16,14 @@ export default function MyProfilePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = getAccessToken();
-    if (!token) {
+    if (!isLoggedIn()) {
       router.replace("/login");
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-        const data = await api.get<ProfileDetail>("/users/me/profile", token);
+        const data = await api.get<ProfileDetail>("/users/me/profile");
         if (!cancelled) setProfile(data);
       } catch (err) {
         if (!cancelled)
