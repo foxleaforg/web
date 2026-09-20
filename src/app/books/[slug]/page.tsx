@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { BookCover } from "@/components/BookCover";
 import { DNFReasonModal } from "@/components/DNFReasonModal";
+import { Fox } from "@/components/Fox";
 import { RatingInput } from "@/components/RatingInput";
 import {
   SpoilerBlock,
@@ -11,6 +13,7 @@ import {
 } from "@/components/SpoilerBlock";
 import { StatusBadge, type ReadingStatus } from "@/components/StatusBadge";
 import { StatusDropdown } from "@/components/StatusDropdown";
+import { Badge, Button, Card } from "@/components/ui";
 import { api } from "@/lib/api";
 import { isLoggedIn } from "@/lib/auth";
 
@@ -106,6 +109,16 @@ export default function BookDetailPage() {
   const [savingRating, setSavingRating] = useState(false);
   const [shelfBusy, setShelfBusy] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
+  // A small moment of delight after a rating lands. Purely additive: the
+  // rating itself is already confirmed by the filled numbers.
+  const [celebrate, setCelebrate] = useState(false);
+
+  // Rating save bookkeeping — see handleRate.
+  const ratingRef = useRef<Rating | null>(null);
+  const savedScoreRef = useRef<number | null>(null);
+  const desiredScoreRef = useRef<number | null>(null);
+  const pendingSavesRef = useRef(0);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const [shelves, setShelves] = useState<Shelf[]>([]);
   const [shelfMenuOpen, setShelfMenuOpen] = useState(false);
@@ -119,6 +132,12 @@ export default function BookDetailPage() {
     setLoggedIn(isLoggedIn());
     setAuthChecked(true);
   }, []);
+
+  useEffect(() => {
+    if (!celebrate) return;
+    const handle = setTimeout(() => setCelebrate(false), 4000);
+    return () => clearTimeout(handle);
+  }, [celebrate]);
 
   useEffect(() => {
     if (!slug) return;
@@ -199,6 +218,10 @@ export default function BookDetailPage() {
       ]);
       if (cancelled) return;
       setRating(r);
+      // Seed the save bookkeeping so the first edit issues a PUT against the
+      // existing row rather than POSTing a second one.
+      ratingRef.current = r;
+      savedScoreRef.current = r ? Math.round(r.overall_score) : null;
       const found = ubs.find((u) => u.book_id === book.id) ?? null;
       setUserBook(found);
       setMyReview(mine.find((rev) => rev.book_id === book.id) ?? null);
@@ -209,33 +232,56 @@ export default function BookDetailPage() {
     };
   }, [book, loggedIn]);
 
-  async function handleRate(score: number) {
+  /**
+   * Ratings now save without disabling the input (see RatingInput), so a
+   * keyboard user arrowing from 1 to 10 can fire ten of these in a few
+   * hundred milliseconds. Two things keep that safe:
+   *
+   *   Serialised — each save waits for the previous one. Reading `rating`
+   *   from state instead would let several calls all see `null` and POST a
+   *   duplicate rating each, so the current row is tracked in a ref.
+   *
+   *   Coalesced — a queued save re-reads the latest requested score at the
+   *   moment it runs and skips if that score is already stored. Arrowing
+   *   across the scale collapses to one or two requests, not ten.
+   */
+  function handleRate(score: number) {
     if (!book) return;
-    setSavingRating(true);
+    desiredScoreRef.current = score;
     setError(null);
-    try {
-      let next: Rating;
-      if (rating) {
-        next = await api.put<Rating>(`/ratings/${rating.id}`, { score });
-      } else {
-        next = await api.post<Rating>("/ratings/rate", {
-          book_id: book.id,
-          score,
-        });
-      }
-      setRating(next);
-      // Refresh aggregate.
-      api
-        .get<RatingSummary>(`/ratings/book/${book.id}/summary`)
-        .then(setSummary)
-        .catch(() => {});
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Couldn't save rating.",
-      );
-    } finally {
-      setSavingRating(false);
-    }
+    pendingSavesRef.current += 1;
+    setSavingRating(true);
+
+    saveChainRef.current = saveChainRef.current
+      .then(async () => {
+        const target = desiredScoreRef.current;
+        if (target === null || target === savedScoreRef.current) return;
+
+        const existing = ratingRef.current;
+        const next = existing
+          ? await api.put<Rating>(`/ratings/${existing.id}`, { score: target })
+          : await api.post<Rating>("/ratings/rate", {
+              book_id: book.id,
+              score: target,
+            });
+
+        ratingRef.current = next;
+        savedScoreRef.current = target;
+        setRating(next);
+        if (!existing) setCelebrate(true);
+
+        const summaryData = await api
+          .get<RatingSummary>(`/ratings/book/${book.id}/summary`)
+          .catch(() => null);
+        if (summaryData) setSummary(summaryData);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Couldn't save rating.");
+      })
+      .finally(() => {
+        pendingSavesRef.current -= 1;
+        if (pendingSavesRef.current === 0) setSavingRating(false);
+      });
   }
 
   async function handleAddToLibrary() {
@@ -316,19 +362,17 @@ export default function BookDetailPage() {
   if (notFound) {
     return (
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-20">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <div aria-hidden className="text-5xl">
-            📖
+        <div className="flex flex-col items-center gap-6 text-center">
+          <Fox mood="searching" size="lg" decorative />
+          <div className="flex flex-col gap-2">
+            <h1 className="text-h2">Book not found</h1>
+            <p className="text-body text-foxleaf-muted">
+              We couldn&apos;t find a book at this address.
+            </p>
           </div>
-          <h1 className="text-2xl font-semibold text-stone-900">
-            Book not found
-          </h1>
-          <p className="text-sm text-stone-600">
-            We couldn&apos;t find a book at this address.
-          </p>
           <Link
             href="/search"
-            className="mt-3 rounded-full bg-stone-800 px-5 py-2 text-sm font-medium text-amber-50 transition-colors hover:bg-stone-900"
+            className="tap-target inline-flex h-11 items-center rounded-control bg-foxleaf-primary px-5 text-small font-medium text-foxleaf-primary-fg shadow-primary transition-colors hover:bg-foxleaf-primary-hover"
           >
             Search for a book
           </Link>
@@ -339,8 +383,10 @@ export default function BookDetailPage() {
 
   if (!book) {
     return (
-      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-20 text-center text-stone-600">
-        {error ?? "Something went wrong."}
+      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-20">
+        <p role="alert" className="text-body text-center text-foxleaf-muted">
+          {error ?? "Something went wrong."}
+        </p>
       </main>
     );
   }
@@ -356,49 +402,38 @@ export default function BookDetailPage() {
       : `${description.slice(0, DESCRIPTION_PREVIEW).trimEnd()}…`;
 
   return (
-    <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
+    <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10 sm:py-14">
       {error ? (
         <p
           role="alert"
-          className="mb-6 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="text-small mb-8 rounded-control border border-foxleaf-danger bg-foxleaf-danger-tint px-4 py-3 text-foxleaf-danger-tint-fg"
         >
           {error}
         </p>
       ) : null}
 
-      <section className="grid grid-cols-1 gap-10 md:grid-cols-[minmax(0,240px)_1fr] md:items-start">
-        <div className="mx-auto w-full max-w-[240px] md:mx-0">
-          <div className="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-gradient-to-br from-amber-200 via-orange-200 to-amber-300 shadow-lg ring-1 ring-stone-900/5">
-            {book.cover_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={book.cover_url}
-                alt={`Cover of ${book.title}`}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div
-                aria-hidden
-                className="flex h-full w-full items-center justify-center text-6xl"
-              >
-                📚
-              </div>
-            )}
-          </div>
+      <section className="grid grid-cols-1 gap-8 sm:gap-12 md:grid-cols-[minmax(0,260px)_1fr] md:items-start">
+        <div className="mx-auto w-full max-w-[220px] sm:max-w-[260px] md:mx-0">
+          <BookCover
+            title={book.title}
+            authors={book.authors.map((a) => a.name)}
+            coverUrl={book.cover_url}
+            size="lg"
+            eager
+            className="shadow-float"
+          />
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-5">
           <div>
-            <h1 className="text-3xl font-semibold leading-tight text-stone-900 sm:text-4xl">
-              {book.title}
-            </h1>
+            <h1 className="text-h1 sm:text-display">{book.title}</h1>
             {book.authors.length > 0 ? (
-              <p className="mt-2 text-base text-stone-600">
+              <p className="text-body-lg mt-3 text-foxleaf-muted">
                 by{" "}
                 {book.authors.map((a, i) => (
                   <Fragment key={a.id}>
                     {i > 0 ? ", " : ""}
-                    <span className="font-medium text-stone-800">
+                    <span className="font-medium text-foxleaf-ink">
                       {a.name}
                     </span>
                   </Fragment>
@@ -414,26 +449,26 @@ export default function BookDetailPage() {
           />
 
           {book.genres.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
+            <ul className="flex flex-wrap gap-2">
               {book.genres.map((g) => (
-                <span
-                  key={g.id}
-                  className="inline-flex items-center rounded-full bg-amber-100/80 px-2.5 py-0.5 text-xs font-medium text-amber-900 ring-1 ring-inset ring-amber-200/60"
-                >
-                  {g.name}
-                </span>
+                <li key={g.id}>
+                  <Badge variant="green" size="md">
+                    {g.name}
+                  </Badge>
+                </li>
               ))}
-            </div>
+            </ul>
           ) : null}
 
           {description ? (
-            <div className="mt-2 text-sm leading-relaxed text-stone-700">
+            <div className="text-body mt-1 text-foxleaf-ink">
               <p className="whitespace-pre-wrap">{descText}</p>
               {showDescToggle ? (
                 <button
                   type="button"
                   onClick={() => setDescExpanded((v) => !v)}
-                  className="mt-2 text-sm font-medium text-stone-800 underline-offset-2 hover:underline"
+                  aria-expanded={descExpanded}
+                  className="text-small tap-target mt-3 font-medium text-foxleaf-primary underline-offset-4 hover:underline"
                 >
                   {descExpanded ? "Show less" : "Read more"}
                 </button>
@@ -444,21 +479,21 @@ export default function BookDetailPage() {
       </section>
 
       {loggedIn ? (
-        <section className="mt-12 rounded-3xl border border-stone-200 bg-white/70 p-6 shadow-sm">
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-            <div className="flex flex-col gap-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
-                In your library
-              </h2>
+        <Card as="section" padding="lg" className="mt-12" aria-labelledby="your-shelf">
+          <h2 id="your-shelf" className="text-h3 mb-6">
+            Your shelf
+          </h2>
+
+          <div className="grid gap-8 md:grid-cols-2">
+            <div className="flex flex-col items-start gap-3">
+              <h3 className="text-caption font-semibold tracking-wide text-foxleaf-muted uppercase">
+                Reading status
+              </h3>
+
               {userBook ? (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-stone-600">
-                      Currently:
-                    </span>
-                    <StatusBadge status={userBook.status} />
-                  </div>
-                  <div className="w-56">
+                <div className="flex w-full flex-col items-start gap-3">
+                  <StatusBadge status={userBook.status} />
+                  <div className="w-full max-w-64">
                     <StatusDropdown
                       status={userBook.status}
                       onChange={handleStatusChange}
@@ -466,42 +501,41 @@ export default function BookDetailPage() {
                   </div>
                 </div>
               ) : (
-                <button
-                  type="button"
+                <Button
                   onClick={handleAddToLibrary}
-                  disabled={shelfBusy}
-                  className="self-start rounded-full bg-stone-800 px-5 py-2 text-sm font-medium text-amber-50 transition-colors hover:bg-stone-900 disabled:cursor-not-allowed disabled:opacity-60"
+                  loading={shelfBusy}
+                  loadingLabel="Adding to your library"
                 >
-                  {shelfBusy ? "Adding…" : "Add to Library"}
-                </button>
+                  Add to Library
+                </Button>
               )}
 
-              <div className="relative mt-1 self-start">
-                <button
-                  type="button"
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => setShelfMenuOpen((v) => !v)}
-                  disabled={addingToShelf}
+                  loading={addingToShelf}
+                  loadingLabel="Adding to shelf"
                   aria-haspopup="menu"
                   aria-expanded={shelfMenuOpen}
-                  className="inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-4 py-1.5 text-sm font-medium text-stone-800 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {addingToShelf ? "Adding…" : "Add to Shelf"}
-                  <span aria-hidden className="text-xs text-stone-500">
-                    ▾
-                  </span>
-                </button>
+                  Add to Shelf
+                  <span aria-hidden>▾</span>
+                </Button>
 
                 {shelfMenuOpen ? (
                   <div
                     role="menu"
-                    className="absolute left-0 z-20 mt-1.5 w-60 overflow-hidden rounded-2xl border border-stone-200 bg-white py-1 shadow-lg ring-1 ring-stone-900/5"
+                    aria-label="Your shelves"
+                    className="absolute left-0 z-20 mt-1.5 w-64 overflow-hidden rounded-card border border-foxleaf-border bg-foxleaf-surface py-1 shadow-float"
                   >
                     {customShelves.length === 0 ? (
-                      <p className="px-4 py-3 text-xs leading-relaxed text-stone-500">
+                      <p className="text-caption px-4 py-3 leading-relaxed text-foxleaf-muted">
                         No custom shelves yet.{" "}
                         <Link
                           href="/shelves"
-                          className="font-medium text-stone-800 underline-offset-2 hover:underline"
+                          className="font-medium text-foxleaf-primary underline-offset-2 hover:underline"
                         >
                           Create one
                         </Link>{" "}
@@ -517,10 +551,10 @@ export default function BookDetailPage() {
                             setShelfMenuOpen(false);
                             handleAddToShelf(shelf);
                           }}
-                          className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm text-stone-700 transition-colors hover:bg-stone-100 hover:text-stone-900"
+                          className="text-small flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-foxleaf-ink transition-colors hover:bg-foxleaf-cream-deep"
                         >
                           {shelf.name}
-                          <span className="text-xs text-stone-400">
+                          <span className="text-caption text-foxleaf-muted">
                             {shelf.book_count}
                           </span>
                         </button>
@@ -531,82 +565,127 @@ export default function BookDetailPage() {
               </div>
 
               {shelfNotice ? (
-                <p
-                  role="status"
-                  className="self-start rounded-full bg-amber-100/80 px-3 py-1 text-xs font-medium text-amber-900 ring-1 ring-inset ring-amber-200/60"
-                >
-                  {shelfNotice}
+                <p role="status">
+                  <Badge variant="green" size="md">
+                    {shelfNotice}
+                  </Badge>
                 </p>
               ) : null}
             </div>
 
-            <div className="flex flex-col gap-3 md:items-end">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
+            <div className="flex flex-col gap-3 md:border-l md:border-foxleaf-border md:pl-8">
+              <h3 className="text-caption font-semibold tracking-wide text-foxleaf-muted uppercase">
                 Your rating
-              </h2>
+              </h3>
               <RatingInput
                 currentRating={rating ? Math.round(rating.overall_score) : null}
                 onRate={handleRate}
-                disabled={savingRating}
+                saving={savingRating}
               />
-              <p className="text-sm text-stone-600">
-                {rating
-                  ? `Your rating: ${formatScore(rating.overall_score)}/10`
-                  : "Click a number to rate this book."}
-              </p>
+
+              {/* Delight, kept out of the way: it never displaces content
+                  (absolutely positioned) and it fades in only when motion
+                  is allowed. `role="status"` announces it politely. */}
+              {celebrate ? (
+                <div
+                  role="status"
+                  className="relative flex items-center gap-3 rounded-card bg-foxleaf-primary-tint px-4 py-3 motion-safe:animate-fade-in-up"
+                >
+                  <Fox mood="celebrating" size="sm" decorative />
+                  <p className="text-small font-medium text-foxleaf-primary-tint-fg">
+                    First rating logged. Nice one.
+                  </p>
+                </div>
+              ) : null}
             </div>
           </div>
 
-          <div className="mt-6 border-t border-stone-200 pt-4">
+          <div className="mt-8 border-t border-foxleaf-border pt-6">
             <Link
               href={`/books/${book.slug}/review`}
-              className="inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-4 py-1.5 text-sm font-medium text-stone-800 transition-colors hover:bg-stone-100"
+              className="text-small tap-target inline-flex h-10 items-center gap-2 rounded-control border border-foxleaf-border-strong px-4 font-medium text-foxleaf-ink transition-colors hover:border-foxleaf-primary hover:bg-foxleaf-cream-deep hover:text-foxleaf-primary"
             >
-              ✍️ {myReview ? "Edit Your Review" : "Write a Review"}
+              <span aria-hidden>✍️</span>
+              {myReview ? "Edit your review" : "Write a review"}
             </Link>
           </div>
-        </section>
+        </Card>
       ) : (
-        <section className="mt-12 rounded-3xl border border-dashed border-stone-300 bg-white/40 p-6 text-center">
-          <p className="text-sm text-stone-700">
+        <Card
+          as="section"
+          padding="lg"
+          className="mt-12 border-dashed text-center"
+        >
+          <p className="text-body text-foxleaf-ink">
             <Link
               href="/login"
-              className="font-medium text-stone-900 underline-offset-2 hover:underline"
+              className="font-medium text-foxleaf-primary underline-offset-4 hover:underline"
             >
               Log in
             </Link>{" "}
             to rate this book and add it to your library.
           </p>
-        </section>
+        </Card>
       )}
 
-      <section className="mt-12">
-        <h2 className="text-lg font-semibold text-stone-900">
+      <section className="mt-14" aria-labelledby="community-rating">
+        <h2 id="community-rating" className="text-h3">
           Community rating
         </h2>
         {summary && summary.total_ratings > 0 ? (
-          <div className="mt-4 flex items-baseline gap-3">
-            <span className="text-5xl font-semibold text-stone-900">
-              {summary.average_score.toFixed(1)}
-            </span>
-            <span className="text-sm text-stone-500">
-              / 10 · {summary.total_ratings.toLocaleString()}{" "}
-              {summary.total_ratings === 1 ? "rating" : "ratings"}
-            </span>
+          <div className="mt-5 flex items-center gap-5">
+            <div className="flex size-24 shrink-0 flex-col items-center justify-center rounded-card bg-foxleaf-primary text-foxleaf-primary-fg shadow-primary">
+              <span className="font-display text-[2.25rem] leading-none font-semibold">
+                {summary.average_score.toFixed(1)}
+              </span>
+              <span className="text-caption opacity-80" aria-hidden>
+                out of 10
+              </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <p className="text-body font-medium text-foxleaf-ink">
+                <span className="sr-only">
+                  Average score {summary.average_score.toFixed(1)} out of 10.{" "}
+                </span>
+                {summary.total_ratings.toLocaleString()}{" "}
+                {summary.total_ratings === 1 ? "rating" : "ratings"}
+              </p>
+              <p className="text-small text-foxleaf-muted">
+                from readers on Foxleaf
+              </p>
+            </div>
           </div>
         ) : (
-          <p className="mt-3 text-sm text-stone-600">
-            No ratings yet. Be the first!
-          </p>
+          <Card padding="lg" className="mt-5">
+            <p className="text-body text-foxleaf-muted">
+              No ratings yet.{" "}
+              <span className="font-medium text-foxleaf-ink">
+                Be the first to rate it.
+              </span>
+            </p>
+          </Card>
         )}
       </section>
 
       <section id="reviews" className="mt-14 scroll-mt-20">
-        <h2 className="text-lg font-semibold text-stone-900">Reviews</h2>
+        <h2 className="text-h3">
+          Reviews
+          {reviews.length > 0 ? (
+            <span className="text-body ml-3 font-sans font-normal text-foxleaf-muted">
+              {reviews.length}
+            </span>
+          ) : null}
+        </h2>
         {reviews.length === 0 ? (
-          <p className="mt-3 text-sm text-stone-600">No reviews yet.</p>
+          <Card padding="lg" className="mt-5">
+            <Fox
+              mood="reading"
+              size="md"
+              message="No reviews yet. Be the first to say what you thought."
+            />
+          </Card>
         ) : (
-          <ul className="mt-5 flex flex-col gap-5">
+          <ul className="mt-6 flex flex-col gap-5">
             {reviews.map((review) => (
               <ReviewCard key={review.id} review={review} />
             ))}
@@ -663,27 +742,30 @@ function ReviewCard({ review }: { review: Review }) {
             .replace(/\b\w/g, (c) => c.toUpperCase());
 
   return (
-    <li className="rounded-3xl border border-stone-200 bg-white/70 p-5 shadow-sm">
+    <Card as="li" padding="md">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div
             aria-hidden
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-200 text-sm font-semibold text-stone-800"
+            className="text-small grid size-10 shrink-0 place-items-center rounded-full bg-foxleaf-primary-tint font-semibold text-foxleaf-primary-tint-fg"
           >
             {review.username.charAt(0).toUpperCase()}
           </div>
           <div>
-            <p className="text-sm font-semibold text-stone-900">
+            <p className="text-small font-semibold text-foxleaf-ink">
               {review.username}
             </p>
-            <p className="text-xs text-stone-500">
+            <time
+              dateTime={review.created_at}
+              className="text-caption text-foxleaf-muted"
+            >
               {formatDate(review.created_at)}
-            </p>
+            </time>
           </div>
         </div>
-        <span className="inline-flex items-center rounded-full bg-stone-100 px-2.5 py-0.5 text-xs font-medium text-stone-700 ring-1 ring-inset ring-stone-200">
+        <Badge variant="gray" size="md">
           {typeLabel}
-        </span>
+        </Badge>
       </header>
 
       <div className="mt-4">
@@ -691,36 +773,47 @@ function ReviewCard({ review }: { review: Review }) {
       </div>
 
       {review.mood_tags.length > 0 ? (
-        <div className="mt-4 flex flex-wrap gap-1.5">
+        <ul className="mt-4 flex flex-wrap gap-2">
           {review.mood_tags.map((tag) => (
-            <span
-              key={tag.id}
-              className="inline-flex items-center rounded-full bg-orange-100/80 px-2.5 py-0.5 text-xs font-medium text-orange-900 ring-1 ring-inset ring-orange-200/60"
-            >
-              {tag.name}
-            </span>
+            <li key={tag.id}>
+              <Badge variant="primary">{tag.name}</Badge>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : null}
 
-      <footer className="mt-4 flex items-center justify-between border-t border-stone-200 pt-3">
-        <button
-          type="button"
+      <footer className="mt-5 flex flex-wrap items-center gap-3 border-t border-foxleaf-border pt-4">
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={handleHelpful}
-          disabled={marking}
-          className="inline-flex items-center gap-1.5 rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-800 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-60"
+          loading={marking}
+          loadingLabel="Marking as helpful"
         >
-          <span aria-hidden>👍</span>
+          <svg
+            aria-hidden
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            className="size-4"
+          >
+            <path
+              d="M5 7.2 8.1 2.3a1.6 1.6 0 0 1 2.9 1.1L10.4 6.4h2.8a1.4 1.4 0 0 1 1.37 1.71l-.9 4.2A1.7 1.7 0 0 1 12 13.7H5Z"
+              strokeLinejoin="round"
+            />
+            <path d="M5 7.2v6.5H2.8a.9.9 0 0 1-.9-.9V8.1a.9.9 0 0 1 .9-.9Z" />
+          </svg>
           Helpful
-          <span className="text-stone-500">· {helpfulCount}</span>
-        </button>
+          <span className="text-foxleaf-muted">· {helpfulCount}</span>
+        </Button>
         {markError ? (
-          <span className="text-xs text-red-600" role="alert">
+          <span className="text-caption text-foxleaf-danger" role="alert">
             {markError}
           </span>
         ) : null}
       </footer>
-    </li>
+    </Card>
   );
 }
 
@@ -735,14 +828,12 @@ function ReviewBody({
 
   if (segments.length === 0) {
     return (
-      <p className="whitespace-pre-wrap text-sm leading-relaxed text-stone-800">
-        {body}
-      </p>
+      <p className="text-body whitespace-pre-wrap text-foxleaf-ink">{body}</p>
     );
   }
 
   return (
-    <div className="text-sm leading-relaxed text-stone-800">
+    <div className="text-body text-foxleaf-ink">
       {segments.map((seg, i) =>
         seg.type === "text" ? (
           <p key={i} className="whitespace-pre-wrap">
@@ -817,22 +908,23 @@ function MetaLine({
   }
   if (language) parts.push(language.toUpperCase());
   if (parts.length === 0) return null;
-  return (
-    <p className="text-sm text-stone-500">{parts.join(" · ")}</p>
-  );
+  return <p className="text-small text-foxleaf-muted">{parts.join(" · ")}</p>;
 }
 
 function BookSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-10 md:grid-cols-[minmax(0,240px)_1fr]">
-      <div className="mx-auto w-full max-w-[240px] md:mx-0">
-        <div className="aspect-[2/3] w-full animate-pulse rounded-2xl bg-stone-200/70" />
+    <div
+      className="grid grid-cols-1 gap-8 sm:gap-12 md:grid-cols-[minmax(0,260px)_1fr]"
+      aria-hidden
+    >
+      <div className="mx-auto w-full max-w-[220px] sm:max-w-[260px] md:mx-0">
+        <div className="aspect-2/3 w-full rounded-card bg-foxleaf-cream-deep motion-safe:animate-pulse" />
       </div>
-      <div className="flex flex-col gap-3">
-        <div className="h-8 w-3/4 animate-pulse rounded bg-stone-200/70" />
-        <div className="h-4 w-1/2 animate-pulse rounded bg-stone-200/70" />
-        <div className="mt-2 h-3 w-1/3 animate-pulse rounded bg-stone-200/70" />
-        <div className="mt-4 h-20 w-full animate-pulse rounded bg-stone-200/70" />
+      <div className="flex flex-col gap-4">
+        <div className="h-10 w-3/4 rounded-control bg-foxleaf-cream-deep motion-safe:animate-pulse" />
+        <div className="h-5 w-1/2 rounded-control bg-foxleaf-cream-deep motion-safe:animate-pulse" />
+        <div className="h-3.5 w-1/3 rounded-full bg-foxleaf-cream-deep motion-safe:animate-pulse" />
+        <div className="mt-2 h-24 w-full rounded-card bg-foxleaf-cream-deep motion-safe:animate-pulse" />
       </div>
     </div>
   );
@@ -846,8 +938,4 @@ function formatDate(value: string): string {
     month: "short",
     day: "numeric",
   });
-}
-
-function formatScore(score: number): string {
-  return Number.isInteger(score) ? String(score) : score.toFixed(1);
 }

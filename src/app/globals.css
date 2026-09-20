@@ -1,5 +1,683 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   Foxleaf design system
+   --------------------------------------------------------------------------
+   Two layers, on purpose:
+
+   1. `:root { --fox-* }`  — the source of truth. Plain CSS custom properties.
+      Theming (dark mode) overrides ONLY this layer.
+   2. `@theme inline`      — maps the `--fox-*` tokens onto Tailwind utility
+      names (`bg-foxleaf-cream`, `text-foxleaf-ink`, …). `inline` matters:
+      it makes utilities emit `var(--fox-…)` rather than baking in the literal
+      value, which is what lets layer 1 re-theme them at runtime.
+
+   Naming note: `foxleaf-primary` is the terracotta BRAND colour (per the
+   `text-foxleaf-primary` convention). Body text is `foxleaf-ink`, secondary
+   text is `foxleaf-muted`.
+   ========================================================================== */
+
+/* Make `dark:` utilities respect the manual override as well as the OS
+   preference. Rarely needed — the tokens re-theme themselves — but it keeps
+   `dark:` consistent with everything else if you do reach for it. */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) & {
+      @slot;
+    }
+  }
+  [data-theme="dark"] & {
+    @slot;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   1. Tokens — light (default)
+   -------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces ------------------------------------------------------------- */
+  --fox-cream: #fdfbf7; /* app background — soft warm off-white */
+  --fox-cream-deep: #f5f0e8; /* alternating rows, inset wells */
+  --fox-surface: #ffffff; /* cards */
+  --fox-surface-muted: #faf7f2; /* nested panels inside a card */
+  --fox-border: #e8e0d5; /* decorative: card edges, dividers */
+  --fox-border-strong: #948676; /* controls: 3.4:1 on cream, 3.5:1 on white */
+
+  /* Text ----------------------------------------------------------------- */
+  --fox-ink: #2a2420; /* 14.8:1 on cream */
+  --fox-text-muted: #766a5f; /* 5.1:1 on cream, 4.6:1 on cream-deep */
+  --fox-text-subtle: #9c9086; /* 3.1:1 — decorative / icons only, never text */
+  --fox-placeholder: #766a5f; /* placeholders are text: must clear 4.5:1 */
+
+  /* Primary — terracotta -------------------------------------------------
+     Dark enough to work BOTH as a fill (white label on it) and as text on
+     the cream backgrounds. The brighter #d97848 below is decoration only. */
+  --fox-primary: #b04f28; /* 5.3:1 vs white, 5.1:1 as text on cream */
+  --fox-primary-hover: #9a4322;
+  --fox-primary-active: #85391c;
+  --fox-primary-fg: #ffffff; /* text/icon colour ON a primary fill */
+  --fox-primary-tint: #f7e4d8; /* soft fill: badges, selected rows */
+  --fox-primary-tint-fg: #8f3e1e; /* text on that soft fill */
+  --fox-primary-bright: #d97848; /* accents & illustration only, not text */
+
+  /* Accent — forest green ------------------------------------------------ */
+  --fox-accent: #3d6b4f; /* 6.2:1 vs white */
+  --fox-accent-hover: #335a42;
+  --fox-accent-active: #2a4b37;
+  --fox-accent-fg: #ffffff;
+  --fox-accent-tint: #e2ede5;
+  --fox-accent-tint-fg: #2c5540;
+
+  /* Status --------------------------------------------------------------- */
+  --fox-success: #3f7d4f;
+  --fox-success-tint: #e4f1e5;
+  --fox-success-tint-fg: #2e6039;
+
+  --fox-warning: #a9661a; /* also the DNF colour */
+  --fox-warning-tint: #faebd2;
+  --fox-warning-tint-fg: #8a5210;
+
+  --fox-danger: #b4453a;
+  --fox-danger-hover: #9c3a30;
+  --fox-danger-tint: #f9e1dd;
+  --fox-danger-tint-fg: #8f332a;
+
+  --fox-neutral-tint: #f0eae1;
+  --fox-neutral-tint-fg: #5f554c;
+
+  /* Spoilers — minor / major / ending ------------------------------------ */
+  --fox-spoiler-minor: #f0eae1;
+  --fox-spoiler-minor-fg: #5f554c;
+  --fox-spoiler-minor-border: #ded5c9;
+
+  --fox-spoiler-major: #faebd2;
+  --fox-spoiler-major-fg: #8a5210;
+  --fox-spoiler-major-border: #efd3a4;
+
+  --fox-spoiler-ending: #f9e1dd;
+  --fox-spoiler-ending-fg: #8f332a;
+  --fox-spoiler-ending-border: #edc4bc;
+
+  /* Mascot — kept separate so the fox stays fox-coloured in any theme ----- */
+  --fox-mascot-fur: #d97848;
+  --fox-mascot-fur-deep: #bc5730;
+  --fox-mascot-belly: #fdf3ea;
+  --fox-mascot-ink: #3b2a20;
+
+  /* Cover placeholders ----------------------------------------------------
+     Books with no cover art get a gradient with the title typeset on it,
+     picked deterministically from the title so a given book always looks the
+     same. Every stop is dark enough for white text at 4.5:1 — the audit
+     checks all eight. Theme-independent, like the mascot: a cover is a cover.
+     If you add a palette, add its two stops to scripts/check-contrast.mjs. */
+  --fox-cover-fg: #ffffff;
+
+  --fox-cover-1-from: #b04f28; /* terracotta */
+  --fox-cover-1-to: #7e3418;
+  --fox-cover-2-from: #3d6b4f; /* forest */
+  --fox-cover-2-to: #27503a;
+  --fox-cover-3-from: #7a3b4e; /* wine */
+  --fox-cover-3-to: #54263a;
+  --fox-cover-4-from: #8a5210; /* ochre */
+  --fox-cover-4-to: #5f380a;
+
+  /* Focus ---------------------------------------------------------------- */
+  --fox-ring: #b04f28;
+
+  /* Radii ---------------------------------------------------------------- */
+  --fox-radius-control: 0.625rem; /* 10px — buttons, inputs */
+  --fox-radius-card: 1rem; /* 16px — cards */
+  --fox-radius-panel: 1.25rem; /* 20px — modals, large surfaces */
+
+  /* Shadows — warm-tinted and gentle, never harsh ------------------------ */
+  --fox-shadow-sm:
+    0 1px 2px rgb(61 47 36 / 0.04), 0 1px 3px rgb(61 47 36 / 0.06);
+  --fox-shadow-md:
+    0 2px 4px rgb(61 47 36 / 0.04), 0 4px 12px rgb(61 47 36 / 0.07);
+  --fox-shadow-lg:
+    0 4px 8px rgb(61 47 36 / 0.05), 0 12px 28px rgb(61 47 36 / 0.09);
+  --fox-shadow-primary:
+    0 1px 2px rgb(140 60 30 / 0.16), 0 4px 12px rgb(140 60 30 / 0.18);
+
+  /* Type scale ----------------------------------------------------------- */
+  --fox-size-display: 3rem; /* 48px — hero only */
+  --fox-size-h1: 2.25rem; /* 36px */
+  --fox-size-h2: 1.75rem; /* 28px */
+  --fox-size-h3: 1.375rem; /* 22px */
+  --fox-size-h4: 1.125rem; /* 18px */
+  --fox-size-body-lg: 1.0625rem; /* 17px — review prose */
+  --fox-size-body: 1rem; /* 16px */
+  --fox-size-small: 0.875rem; /* 14px */
+  --fox-size-caption: 0.75rem; /* 12px */
+
+  --fox-leading-display: 1.05;
+  --fox-leading-h1: 1.1;
+  --fox-leading-h2: 1.2;
+  --fox-leading-h3: 1.3;
+  --fox-leading-h4: 1.4;
+  --fox-leading-body-lg: 1.65;
+  --fox-leading-body: 1.65;
+  --fox-leading-small: 1.55;
+  --fox-leading-caption: 1.45;
+
+  --fox-tracking-display: -0.03em;
+  --fox-tracking-h1: -0.022em;
+  --fox-tracking-h2: -0.018em;
+  --fox-tracking-h3: -0.012em;
+  --fox-tracking-h4: -0.006em;
+  --fox-tracking-body: 0em;
+  --fox-tracking-caption: 0.01em;
+
+  --fox-weight-heading: 600;
+}
+
+/* --------------------------------------------------------------------------
+   Tokens — dark
+
+   Structural override of layer 1 only. Two activation paths:
+     · OS preference, unless the user has explicitly chosen light
+     · `data-theme="dark"` on <html>, which wins over the OS
+
+   CSS can't union a media query with a selector, so these two blocks are
+   necessarily duplicated. KEEP THEM IN SYNC.
+   -------------------------------------------------------------------------- */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --fox-cream: #16120f;
+    --fox-cream-deep: #100d0b;
+    --fox-surface: #1e1916;
+    --fox-surface-muted: #262019;
+    --fox-border: #342c25; /* decorative */
+    --fox-border-strong: #786b5e; /* controls: 3.4:1 on surface */
+
+    --fox-ink: #f4ede4;
+    --fox-text-muted: #ada095;
+    --fox-text-subtle: #8a7e73;
+    --fox-placeholder: #ada095;
+
+    /* Terracotta lightens on dark, so the foreground flips to dark ink. */
+    --fox-primary: #e08a5c;
+    --fox-primary-hover: #eb9a6e;
+    --fox-primary-active: #f2a87f;
+    --fox-primary-fg: #2a1509;
+    --fox-primary-tint: #38241a;
+    --fox-primary-tint-fg: #f0b58e;
+    --fox-primary-bright: #e8926a;
+
+    --fox-accent: #6fa982;
+    --fox-accent-hover: #7fb891;
+    --fox-accent-active: #8fc7a0;
+    --fox-accent-fg: #10231a;
+    --fox-accent-tint: #1e2f26;
+    --fox-accent-tint-fg: #9fd0af;
+
+    --fox-success: #6fac7c;
+    --fox-success-tint: #1b2a1f;
+    --fox-success-tint-fg: #a2d2ac;
+
+    --fox-warning: #d9a44e;
+    --fox-warning-tint: #2e2416;
+    --fox-warning-tint-fg: #e8c287;
+
+    --fox-danger: #e07c6e;
+    --fox-danger-hover: #ea8c7e;
+    --fox-danger-tint: #33201c;
+    --fox-danger-tint-fg: #f0a99d;
+
+    --fox-neutral-tint: #2a231d;
+    --fox-neutral-tint-fg: #c0b4a8;
+
+    --fox-spoiler-minor: #2a231d;
+    --fox-spoiler-minor-fg: #c0b4a8;
+    --fox-spoiler-minor-border: #3a322a;
+
+    --fox-spoiler-major: #2e2416;
+    --fox-spoiler-major-fg: #e8c287;
+    --fox-spoiler-major-border: #4a3a1e;
+
+    --fox-spoiler-ending: #33201c;
+    --fox-spoiler-ending-fg: #f0a99d;
+    --fox-spoiler-ending-border: #4a2e28;
+
+    --fox-mascot-fur: #e08a5c;
+    --fox-mascot-fur-deep: #c26a3e;
+    --fox-mascot-belly: #f6e6d8;
+    --fox-mascot-ink: #2a1a12;
+
+    --fox-ring: #e08a5c;
+
+    --fox-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.24);
+    --fox-shadow-md: 0 2px 4px rgb(0 0 0 / 0.3), 0 4px 12px rgb(0 0 0 / 0.32);
+    --fox-shadow-lg: 0 4px 8px rgb(0 0 0 / 0.32), 0 12px 28px rgb(0 0 0 / 0.4);
+    --fox-shadow-primary:
+      0 1px 2px rgb(0 0 0 / 0.3), 0 4px 12px rgb(224 138 92 / 0.22);
+  }
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --fox-cream: #16120f;
+  --fox-cream-deep: #100d0b;
+  --fox-surface: #1e1916;
+  --fox-surface-muted: #262019;
+  --fox-border: #342c25; /* decorative */
+  --fox-border-strong: #786b5e; /* controls: 3.4:1 on surface */
+
+  --fox-ink: #f4ede4;
+  --fox-text-muted: #ada095;
+  --fox-text-subtle: #8a7e73;
+  --fox-placeholder: #ada095;
+
+  --fox-primary: #e08a5c;
+  --fox-primary-hover: #eb9a6e;
+  --fox-primary-active: #f2a87f;
+  --fox-primary-fg: #2a1509;
+  --fox-primary-tint: #38241a;
+  --fox-primary-tint-fg: #f0b58e;
+  --fox-primary-bright: #e8926a;
+
+  --fox-accent: #6fa982;
+  --fox-accent-hover: #7fb891;
+  --fox-accent-active: #8fc7a0;
+  --fox-accent-fg: #10231a;
+  --fox-accent-tint: #1e2f26;
+  --fox-accent-tint-fg: #9fd0af;
+
+  --fox-success: #6fac7c;
+  --fox-success-tint: #1b2a1f;
+  --fox-success-tint-fg: #a2d2ac;
+
+  --fox-warning: #d9a44e;
+  --fox-warning-tint: #2e2416;
+  --fox-warning-tint-fg: #e8c287;
+
+  --fox-danger: #e07c6e;
+  --fox-danger-hover: #ea8c7e;
+  --fox-danger-tint: #33201c;
+  --fox-danger-tint-fg: #f0a99d;
+
+  --fox-neutral-tint: #2a231d;
+  --fox-neutral-tint-fg: #c0b4a8;
+
+  --fox-spoiler-minor: #2a231d;
+  --fox-spoiler-minor-fg: #c0b4a8;
+  --fox-spoiler-minor-border: #3a322a;
+
+  --fox-spoiler-major: #2e2416;
+  --fox-spoiler-major-fg: #e8c287;
+  --fox-spoiler-major-border: #4a3a1e;
+
+  --fox-spoiler-ending: #33201c;
+  --fox-spoiler-ending-fg: #f0a99d;
+  --fox-spoiler-ending-border: #4a2e28;
+
+  --fox-mascot-fur: #e08a5c;
+  --fox-mascot-fur-deep: #c26a3e;
+  --fox-mascot-belly: #f6e6d8;
+  --fox-mascot-ink: #2a1a12;
+
+  --fox-ring: #e08a5c;
+
+  --fox-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.24);
+  --fox-shadow-md: 0 2px 4px rgb(0 0 0 / 0.3), 0 4px 12px rgb(0 0 0 / 0.32);
+  --fox-shadow-lg: 0 4px 8px rgb(0 0 0 / 0.32), 0 12px 28px rgb(0 0 0 / 0.4);
+  --fox-shadow-primary:
+    0 1px 2px rgb(0 0 0 / 0.3), 0 4px 12px rgb(224 138 92 / 0.22);
+}
+
+/* --------------------------------------------------------------------------
+   2. Tailwind theme mapping
+   -------------------------------------------------------------------------- */
+
 @theme inline {
+  /* Fonts */
   --font-sans: var(--font-inter);
+  --font-display: var(--font-fraunces);
+
+  /* Surfaces */
+  --color-foxleaf-cream: var(--fox-cream);
+  --color-foxleaf-cream-deep: var(--fox-cream-deep);
+  --color-foxleaf-surface: var(--fox-surface);
+  --color-foxleaf-surface-muted: var(--fox-surface-muted);
+  --color-foxleaf-border: var(--fox-border);
+  --color-foxleaf-border-strong: var(--fox-border-strong);
+
+  /* Text */
+  --color-foxleaf-ink: var(--fox-ink);
+  --color-foxleaf-muted: var(--fox-text-muted);
+  --color-foxleaf-subtle: var(--fox-text-subtle);
+  --color-foxleaf-placeholder: var(--fox-placeholder);
+
+  /* Primary */
+  --color-foxleaf-primary: var(--fox-primary);
+  --color-foxleaf-primary-hover: var(--fox-primary-hover);
+  --color-foxleaf-primary-active: var(--fox-primary-active);
+  --color-foxleaf-primary-fg: var(--fox-primary-fg);
+  --color-foxleaf-primary-tint: var(--fox-primary-tint);
+  --color-foxleaf-primary-tint-fg: var(--fox-primary-tint-fg);
+  --color-foxleaf-primary-bright: var(--fox-primary-bright);
+
+  /* Accent */
+  --color-foxleaf-accent: var(--fox-accent);
+  --color-foxleaf-accent-hover: var(--fox-accent-hover);
+  --color-foxleaf-accent-active: var(--fox-accent-active);
+  --color-foxleaf-accent-fg: var(--fox-accent-fg);
+  --color-foxleaf-accent-tint: var(--fox-accent-tint);
+  --color-foxleaf-accent-tint-fg: var(--fox-accent-tint-fg);
+
+  /* Status */
+  --color-foxleaf-success: var(--fox-success);
+  --color-foxleaf-success-tint: var(--fox-success-tint);
+  --color-foxleaf-success-tint-fg: var(--fox-success-tint-fg);
+
+  --color-foxleaf-warning: var(--fox-warning);
+  --color-foxleaf-warning-tint: var(--fox-warning-tint);
+  --color-foxleaf-warning-tint-fg: var(--fox-warning-tint-fg);
+
+  --color-foxleaf-danger: var(--fox-danger);
+  --color-foxleaf-danger-hover: var(--fox-danger-hover);
+  --color-foxleaf-danger-tint: var(--fox-danger-tint);
+  --color-foxleaf-danger-tint-fg: var(--fox-danger-tint-fg);
+
+  --color-foxleaf-neutral-tint: var(--fox-neutral-tint);
+  --color-foxleaf-neutral-tint-fg: var(--fox-neutral-tint-fg);
+
+  /* Spoilers */
+  --color-foxleaf-spoiler-minor: var(--fox-spoiler-minor);
+  --color-foxleaf-spoiler-minor-fg: var(--fox-spoiler-minor-fg);
+  --color-foxleaf-spoiler-minor-border: var(--fox-spoiler-minor-border);
+  --color-foxleaf-spoiler-major: var(--fox-spoiler-major);
+  --color-foxleaf-spoiler-major-fg: var(--fox-spoiler-major-fg);
+  --color-foxleaf-spoiler-major-border: var(--fox-spoiler-major-border);
+  --color-foxleaf-spoiler-ending: var(--fox-spoiler-ending);
+  --color-foxleaf-spoiler-ending-fg: var(--fox-spoiler-ending-fg);
+  --color-foxleaf-spoiler-ending-border: var(--fox-spoiler-ending-border);
+
+  /* Cover placeholders */
+  --color-foxleaf-cover-fg: var(--fox-cover-fg);
+  --color-foxleaf-cover-1-from: var(--fox-cover-1-from);
+  --color-foxleaf-cover-1-to: var(--fox-cover-1-to);
+  --color-foxleaf-cover-2-from: var(--fox-cover-2-from);
+  --color-foxleaf-cover-2-to: var(--fox-cover-2-to);
+  --color-foxleaf-cover-3-from: var(--fox-cover-3-from);
+  --color-foxleaf-cover-3-to: var(--fox-cover-3-to);
+  --color-foxleaf-cover-4-from: var(--fox-cover-4-from);
+  --color-foxleaf-cover-4-to: var(--fox-cover-4-to);
+
+  /* Mascot */
+  --color-foxleaf-fur: var(--fox-mascot-fur);
+  --color-foxleaf-fur-deep: var(--fox-mascot-fur-deep);
+  --color-foxleaf-belly: var(--fox-mascot-belly);
+  --color-foxleaf-mascot-ink: var(--fox-mascot-ink);
+
+  /* Focus */
+  --color-foxleaf-ring: var(--fox-ring);
+
+  /* Radii — Tailwind's own scale is left intact; these are additive.
+     Pills use the built-in `rounded-full`. */
+  --radius-control: var(--fox-radius-control);
+  --radius-card: var(--fox-radius-card);
+  --radius-panel: var(--fox-radius-panel);
+
+  /* Shadows */
+  --shadow-soft: var(--fox-shadow-sm);
+  --shadow-lift: var(--fox-shadow-md);
+  --shadow-float: var(--fox-shadow-lg);
+  --shadow-primary: var(--fox-shadow-primary);
+
+  /* Type scale */
+  --text-display: var(--fox-size-display);
+  --text-display--line-height: var(--fox-leading-display);
+  --text-display--letter-spacing: var(--fox-tracking-display);
+  --text-display--font-weight: var(--fox-weight-heading);
+
+  --text-h1: var(--fox-size-h1);
+  --text-h1--line-height: var(--fox-leading-h1);
+  --text-h1--letter-spacing: var(--fox-tracking-h1);
+  --text-h1--font-weight: var(--fox-weight-heading);
+
+  --text-h2: var(--fox-size-h2);
+  --text-h2--line-height: var(--fox-leading-h2);
+  --text-h2--letter-spacing: var(--fox-tracking-h2);
+  --text-h2--font-weight: var(--fox-weight-heading);
+
+  --text-h3: var(--fox-size-h3);
+  --text-h3--line-height: var(--fox-leading-h3);
+  --text-h3--letter-spacing: var(--fox-tracking-h3);
+  --text-h3--font-weight: var(--fox-weight-heading);
+
+  --text-h4: var(--fox-size-h4);
+  --text-h4--line-height: var(--fox-leading-h4);
+  --text-h4--letter-spacing: var(--fox-tracking-h4);
+  --text-h4--font-weight: var(--fox-weight-heading);
+
+  --text-body-lg: var(--fox-size-body-lg);
+  --text-body-lg--line-height: var(--fox-leading-body-lg);
+
+  --text-body: var(--fox-size-body);
+  --text-body--line-height: var(--fox-leading-body);
+
+  --text-small: var(--fox-size-small);
+  --text-small--line-height: var(--fox-leading-small);
+
+  --text-caption: var(--fox-size-caption);
+  --text-caption--line-height: var(--fox-leading-caption);
+  --text-caption--letter-spacing: var(--fox-tracking-caption);
+}
+
+/* Celebration / entrance motion. Always pair with `motion-safe:` at the call
+   site; the reduced-motion block below also collapses it as a backstop. */
+@theme {
+  --animate-fade-in-up: fade-in-up 400ms ease-out;
+
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* --------------------------------------------------------------------------
+   3. Base layer
+   -------------------------------------------------------------------------- */
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--fox-cream);
+    color: var(--fox-ink);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-size: var(--fox-size-body);
+    line-height: var(--fox-leading-body);
+  }
+
+  /* Headings default to Fraunces. `SOFT` rounds the terminals off a little,
+     which is most of where the cosiness comes from. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display), ui-serif, Georgia, serif;
+    font-variation-settings: "SOFT" 24;
+    font-weight: var(--fox-weight-heading);
+    color: var(--fox-ink);
+    text-wrap: balance;
+  }
+
+  h1 {
+    font-size: var(--fox-size-h1);
+    line-height: var(--fox-leading-h1);
+    letter-spacing: var(--fox-tracking-h1);
+  }
+
+  h2 {
+    font-size: var(--fox-size-h2);
+    line-height: var(--fox-leading-h2);
+    letter-spacing: var(--fox-tracking-h2);
+  }
+
+  h3 {
+    font-size: var(--fox-size-h3);
+    line-height: var(--fox-leading-h3);
+    letter-spacing: var(--fox-tracking-h3);
+  }
+
+  h4,
+  h5,
+  h6 {
+    font-size: var(--fox-size-h4);
+    line-height: var(--fox-leading-h4);
+    letter-spacing: var(--fox-tracking-h4);
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background-color: var(--fox-primary-tint);
+    color: var(--fox-primary-tint-fg);
+  }
+
+  /* Placeholders are text and must clear 4.5:1 — browsers default them to a
+     washed-out grey that does not. */
+  ::placeholder {
+    color: var(--fox-placeholder);
+    opacity: 1; /* Firefox dims placeholders by default */
+  }
+
+  /* ---- Focus -------------------------------------------------------------
+     One global keyboard focus style for every interactive element.
+     `:focus-visible` means it appears for keyboard and programmatic focus but
+     not on mouse click — except on text inputs, which always match it while
+     typing, which is what you want.
+
+     `outline-offset` is doing real work: the 2px gap is transparent, so the
+     ring always sits against the page or card background rather than against
+     the control's own fill. That is the colour the 3:1 non-text contrast
+     requirement is measured against, and it is what scripts/check-contrast.mjs
+     checks (`ring` vs `cream`, `ring` vs `surface`).
+
+     Deliberately outline-only: a box-shadow halo would be overridden by any
+     Tailwind `shadow-*` utility on the element, so it would apply to some
+     controls and silently not others.
+
+     Never remove this without providing an equally visible replacement. */
+  :focus-visible {
+    outline: 2px solid var(--fox-ring);
+    outline-offset: 2px;
+  }
+
+  /* Windows High Contrast Mode discards author colours. `Highlight` is a
+     system keyword that survives, so the ring is still drawn there. */
+  @media (forced-colors: active) {
+    :focus-visible {
+      outline-color: Highlight;
+    }
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Reduced motion
+
+   Honours the OS "reduce motion" setting. Animations are collapsed to a
+   single frame rather than removed outright, so anything that relies on an
+   animation/transition end event still fires. `scroll-behavior` is reset too,
+   since smooth scrolling is a common vestibular trigger.
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  html {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   4. Utilities
+   -------------------------------------------------------------------------- */
+
+/* Fraunces' quirky alternates. Reserved for the wordmark and display type —
+   it gets noisy at body sizes. */
+@utility font-wonk {
+  font-variation-settings: "SOFT" 30, "WONK" 1;
+}
+
+/* Expands a control's hit area to at least 44×44px without changing how big
+   it looks (WCAG 2.5.5 Target Size, and comfortably over the 24px WCAG 2.2 AA
+   minimum). The overlay is centred, so it grows evenly in every direction.
+
+   Only works on elements that support pseudo-elements — `<button>` and `<a>`
+   do, replaced elements like `<input>` do not. Size those properly instead. */
+@utility tap-target {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+    width: 100%;
+    height: 100%;
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* The accessible "whole card is clickable" pattern: a real <a> or <button>
+   inside the card stretches its hit area over the entire card. Keeps one
+   real, focusable, correctly-named control instead of a div with an onClick.
+   Put this on the link; put `relative` on the card. Text in the card stays
+   selectable, and any nested link needs `relative z-1` to stay reachable. */
+@utility stretch-link {
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+}
+
+/* Off-screen until focused — for skip links.
+   Keyed to `:focus`, not `:focus-visible`: a skip link is only reachable by
+   Tab or programmatic focus in the first place, and `:focus-visible` does not
+   always match programmatic focus. Getting that wrong parks keyboard focus on
+   an element nobody can see, which is worse than having no skip link. */
+@utility skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: 0.75rem;
+  z-index: 50;
+  translate: 0 -200%;
+  transition: translate 150ms ease-out;
+
+  &:focus {
+    translate: 0 0;
+  }
 }

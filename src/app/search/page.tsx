@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { BookCard } from "@/components/BookCard";
+import { Fox } from "@/components/Fox";
+import { Badge, Button } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { isLoggedIn } from "@/lib/auth";
 
@@ -42,6 +43,14 @@ type SearchResponse = {
   local_results: LocalResult[];
   open_library_results: OpenLibraryResult[];
   query: string;
+  /**
+   * False when the API could not reach Open Library. Without this an empty
+   * `open_library_results` is ambiguous — "no matches" and "the upstream
+   * timed out" look identical, and we used to report the outage as
+   * "nothing turned up", which sent people off to re-spell a fine query.
+   * Optional so an older API that omits it is treated as healthy.
+   */
+  open_library_ok?: boolean;
 };
 
 const DEBOUNCE_MS = 300;
@@ -150,110 +159,159 @@ export default function SearchPage() {
   const hasLocal = localResults.length > 0;
   const hasOL = olResults.length > 0;
   const hasAnyResults = hasLocal || hasOL;
+  // `!== false` so a response without the field counts as healthy.
+  const olDegraded = results !== null && results.open_library_ok === false;
   const showEmptyForQuery =
-    !loading && !error && results !== null && !hasAnyResults && lastQuery;
+    !loading &&
+    !error &&
+    results !== null &&
+    !hasAnyResults &&
+    !olDegraded &&
+    lastQuery;
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
+    <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 sm:py-16">
+      <div className="mx-auto max-w-2xl text-center">
+        <h1 className="text-h1">Find your next read</h1>
+        <p className="text-body-lg mt-3 text-foxleaf-muted text-balance">
+          Search millions of books by title, author, or ISBN.
+        </p>
+      </div>
+
       <form
         onSubmit={(event) => {
           event.preventDefault();
           runSearch(query);
         }}
-        className="flex gap-2"
+        role="search"
+        className="mx-auto mt-8 flex max-w-2xl flex-col gap-3 sm:flex-row"
       >
         <div className="relative flex-1">
-          <span
+          <label htmlFor="book-search" className="sr-only">
+            Search for a book
+          </label>
+          <svg
             aria-hidden
-            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-stone-400"
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-foxleaf-muted"
           >
-            🔍
-          </span>
+            <circle cx="8.5" cy="8.5" r="5.5" />
+            <path d="m12.8 12.8 4 4" strokeLinecap="round" />
+          </svg>
           <input
+            id="book-search"
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search for a book, author, or ISBN…"
+            placeholder="Try “Piranesi”, “Le Guin”, or an ISBN…"
             autoFocus
-            className="w-full rounded-full border border-stone-300 bg-white py-4 pl-12 pr-4 text-base text-stone-900 shadow-sm outline-none transition-colors placeholder:text-stone-400 focus:border-stone-500 focus:ring-2 focus:ring-stone-300"
+            // Results appear below without a navigation, so tell screen
+            // readers this field drives a live region.
+            aria-controls="search-results"
+            className="text-body h-14 w-full rounded-control border border-foxleaf-border-strong bg-foxleaf-surface pr-4 pl-12 text-foxleaf-ink shadow-soft transition-[border-color] duration-150 ease-out placeholder:text-foxleaf-placeholder hover:border-foxleaf-ink focus:border-foxleaf-primary"
           />
         </div>
-        <button
-          type="submit"
-          className="rounded-full bg-stone-800 px-6 text-sm font-medium text-amber-50 transition-colors hover:bg-stone-900"
-        >
+        <Button type="submit" size="lg" className="sm:w-32">
           Search
-        </button>
+        </Button>
       </form>
 
       {error ? (
         <p
           role="alert"
-          className="mt-6 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="text-small mx-auto mt-6 max-w-2xl rounded-control border border-foxleaf-danger bg-foxleaf-danger-tint px-4 py-3 text-foxleaf-danger-tint-fg"
         >
           {error}
         </p>
       ) : null}
 
-      <div className="mt-10">
+      <div
+        id="search-results"
+        aria-live="polite"
+        aria-busy={loading}
+        className="mt-12"
+      >
         {loading ? (
-          <LoadingState />
+          <LoadingState query={query.trim()} />
         ) : !lastQuery && !query ? (
           <InitialEmpty />
         ) : showEmptyForQuery ? (
           <NoResults query={lastQuery} />
-        ) : hasAnyResults ? (
-          <div className="flex flex-col gap-12">
+        ) : hasAnyResults || olDegraded ? (
+          <div className="flex flex-col gap-14">
+            {olDegraded ? (
+              <OpenLibraryUnavailable onRetry={() => runSearch(lastQuery)} />
+            ) : null}
+
             {hasLocal ? (
-              <Section title="In Foxleaf">
+              <Section title="In Foxleaf" count={localResults.length}>
                 <Grid>
                   {localResults.map(({ book }) => (
-                    <Link
+                    <BookCard
                       key={book.id}
-                      href={`/books/${book.slug}`}
-                      className="block cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-500"
-                    >
-                      <BookCard
-                        title={book.title}
-                        authors={book.authors.map((a) => a.name)}
-                        coverUrl={book.cover_url}
-                        pageCount={book.page_count}
-                        year={book.first_published}
-                      />
-                    </Link>
+                      slug={book.slug}
+                      title={book.title}
+                      authors={book.authors.map((a) => a.name)}
+                      coverUrl={book.cover_url}
+                      pageCount={book.page_count}
+                      year={book.first_published}
+                    />
                   ))}
                 </Grid>
               </Section>
             ) : null}
 
             {hasOL ? (
-              <Section title="From Open Library">
+              <Section
+                title="From Open Library"
+                count={olResults.length}
+                hint="Not in Foxleaf yet — add one to start tracking it."
+              >
                 <Grid>
                   {olResults.map((book) => {
                     const importedBook = imported[book.ol_work_key];
                     const isImporting = importing[book.ol_work_key];
+
                     if (importedBook) {
                       return (
-                        <Link
+                        <BookCard
                           key={book.ol_work_key}
-                          href={`/books/${importedBook.slug}`}
-                          className="block cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-500"
-                        >
-                          <BookCard
-                            title={importedBook.title}
-                            authors={importedBook.authors.map((a) => a.name)}
-                            coverUrl={importedBook.cover_url}
-                            pageCount={importedBook.page_count}
-                            year={importedBook.first_published}
-                            action={
-                              <span className="block w-full rounded-full bg-green-100 px-3 py-1.5 text-center text-xs font-medium text-green-800">
-                                Added ✓
-                              </span>
-                            }
-                          />
-                        </Link>
+                          slug={importedBook.slug}
+                          title={importedBook.title}
+                          authors={importedBook.authors.map((a) => a.name)}
+                          coverUrl={importedBook.cover_url}
+                          pageCount={importedBook.page_count}
+                          year={importedBook.first_published}
+                          action={
+                            <Badge
+                              variant="green"
+                              size="md"
+                              className="w-full justify-center"
+                              icon={
+                                <svg
+                                  viewBox="0 0 16 16"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                >
+                                  <path
+                                    d="m3 8.4 3.2 3.2L13 4.8"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              }
+                            >
+                              Added
+                            </Badge>
+                          }
+                        />
                       );
                     }
+
                     return (
                       <BookCard
                         key={book.ol_work_key}
@@ -263,14 +321,16 @@ export default function SearchPage() {
                         pageCount={book.page_count}
                         year={book.first_publish_year}
                         action={
-                          <button
-                            type="button"
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            fullWidth
+                            loading={isImporting}
+                            loadingLabel={`Adding ${book.title} to Foxleaf`}
                             onClick={() => handleImport(book)}
-                            disabled={isImporting}
-                            className="w-full rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-800 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            {isImporting ? "Adding…" : "Add to Foxleaf"}
-                          </button>
+                            Add to Foxleaf
+                          </Button>
                         }
                       />
                     );
@@ -287,14 +347,26 @@ export default function SearchPage() {
 
 function Section({
   title,
+  count,
+  hint,
   children,
 }: {
   title: string;
+  count: number;
+  hint?: string;
   children: React.ReactNode;
 }) {
   return (
     <section>
-      <h2 className="mb-5 text-lg font-semibold text-stone-900">{title}</h2>
+      <div className="mb-6 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-h3">{title}</h2>
+        <span className="text-small text-foxleaf-muted">
+          {count} {count === 1 ? "book" : "books"}
+        </span>
+        {hint ? (
+          <p className="text-small basis-full text-foxleaf-muted">{hint}</p>
+        ) : null}
+      </div>
       {children}
     </section>
   );
@@ -308,47 +380,72 @@ function Grid({ children }: { children: React.ReactNode }) {
   );
 }
 
-function LoadingState() {
+/**
+ * Skeleton cards rather than a spinner: the layout that is about to appear,
+ * warm-toned, so the page does not lurch when results land.
+ */
+function LoadingState({ query }: { query: string }) {
   return (
-    <div className="flex items-center justify-center py-20 text-sm text-stone-500">
-      <span className="inline-flex items-center gap-2">
-        <span
-          aria-hidden
-          className="h-3 w-3 animate-pulse rounded-full bg-stone-400"
-        />
-        Searching…
-      </span>
+    <div>
+      <p className="text-small mb-6 text-foxleaf-muted">
+        Searching{query ? ` for “${query}”` : ""}…
+      </p>
+      <Grid>
+        {Array.from({ length: 10 }).map((_, i) => (
+          <div key={i} className="flex flex-col" aria-hidden>
+            <div className="aspect-2/3 w-full rounded-card bg-foxleaf-cream-deep motion-safe:animate-pulse" />
+            <div className="mt-3 h-3.5 w-4/5 rounded-full bg-foxleaf-cream-deep motion-safe:animate-pulse" />
+            <div className="mt-2 h-3 w-1/2 rounded-full bg-foxleaf-cream-deep motion-safe:animate-pulse" />
+          </div>
+        ))}
+      </Grid>
     </div>
   );
 }
 
 function InitialEmpty() {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-      <div className="text-5xl" aria-hidden>
-        📖✨
-      </div>
-      <p className="text-lg font-medium text-stone-800">
-        What are you looking for?
+    <div className="py-12">
+      <Fox
+        mood="searching"
+        size="lg"
+        message="What's your next read? Search a title, an author you love, or an ISBN you're holding."
+      />
+    </div>
+  );
+}
+
+/**
+ * Shown when the API reached us but could not reach Open Library. Says so
+ * plainly and offers a retry, rather than implying the search found nothing.
+ */
+function OpenLibraryUnavailable({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div
+      role="status"
+      className="flex flex-col items-start gap-3 rounded-card border border-foxleaf-warning-tint-fg/25 bg-foxleaf-warning-tint px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <p className="text-small text-foxleaf-warning-tint-fg">
+        <span className="font-semibold">
+          Couldn&apos;t reach Open Library just now.
+        </span>{" "}
+        Showing Foxleaf results only — there may be more books out there.
       </p>
-      <p className="max-w-sm text-sm text-stone-500">
-        Search by title, author, or ISBN to find your next read.
-      </p>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        Try again
+      </Button>
     </div>
   );
 }
 
 function NoResults({ query }: { query: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-      <div className="text-4xl" aria-hidden>
-        🔍
-      </div>
-      <p className="text-base text-stone-700">
-        No books found for{" "}
-        <span className="font-medium text-stone-900">“{query}”</span>.
-      </p>
-      <p className="text-sm text-stone-500">Try a different search.</p>
+    <div className="py-12">
+      <Fox
+        mood="empty"
+        size="lg"
+        message={`Nothing turned up for “${query}”. Try a different spelling, or search by author.`}
+      />
     </div>
   );
 }

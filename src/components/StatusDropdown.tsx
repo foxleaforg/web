@@ -56,22 +56,26 @@ export function StatusDropdown({
           setOpen((v) => !v);
         }}
         disabled={disabled}
-        aria-haspopup="listbox"
+        // A menu of buttons, not a listbox. The previous markup declared
+        // role="listbox" with role="option" buttons nested inside <li>s,
+        // which is invalid: options must be direct children of the listbox
+        // and must not contain interactive descendants. Screen readers were
+        // being told about a widget that did not behave like one.
+        aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex w-full items-center justify-between gap-1.5 rounded-full border border-stone-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-stone-800 shadow-sm transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+        className="tap-target inline-flex w-full items-center justify-between gap-1.5 rounded-full border border-foxleaf-border-strong bg-foxleaf-surface px-3 py-1.5 text-caption font-medium text-foxleaf-ink shadow-soft transition-colors hover:border-foxleaf-primary disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="inline-flex items-center gap-1.5">
-          <span
-            aria-hidden
-            className={`h-1.5 w-1.5 rounded-full ${dotClass(status)}`}
-          />
+          <span aria-hidden className="[&>svg]:size-3.5">
+            {current.icon}
+          </span>
           {current.label}
         </span>
         <svg
           aria-hidden
           viewBox="0 0 20 20"
           fill="currentColor"
-          className={`h-3 w-3 text-stone-500 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`size-3 text-foxleaf-muted transition-transform ${open ? "rotate-180" : ""}`}
         >
           <path
             fillRule="evenodd"
@@ -82,56 +86,46 @@ export function StatusDropdown({
       </button>
 
       {open ? (
-        <ul
-          role="listbox"
-          className="absolute left-0 right-0 z-20 mt-1 overflow-hidden rounded-xl border border-stone-200 bg-white py-1 shadow-lg ring-1 ring-stone-900/5"
+        <div
+          role="menu"
+          aria-label="Reading status"
+          className="absolute right-0 left-0 z-20 mt-1 overflow-hidden rounded-card border border-foxleaf-border bg-foxleaf-surface py-1 shadow-float"
         >
           {STATUS_OPTIONS.map((opt) => {
             const meta = STATUS_META[opt];
             const isCurrent = opt === status;
             return (
-              <li key={opt}>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={isCurrent}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setOpen(false);
-                    if (!isCurrent) onChange(opt);
-                  }}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-stone-100 ${isCurrent ? "font-semibold text-stone-900" : "text-stone-700"}`}
-                >
-                  <span
-                    aria-hidden
-                    className={`h-1.5 w-1.5 rounded-full ${dotClass(opt)}`}
-                  />
-                  {meta.label}
-                  {isCurrent ? (
-                    <span aria-hidden className="ml-auto text-stone-400">
-                      ✓
-                    </span>
-                  ) : null}
-                </button>
-              </li>
+              <button
+                key={opt}
+                type="button"
+                role="menuitemradio"
+                aria-checked={isCurrent}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setOpen(false);
+                  if (!isCurrent) onChange(opt);
+                }}
+                className={`text-caption flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-foxleaf-cream-deep ${
+                  isCurrent
+                    ? "font-semibold text-foxleaf-ink"
+                    : "text-foxleaf-muted"
+                }`}
+              >
+                <span aria-hidden className="[&>svg]:size-3.5">
+                  {meta.icon}
+                </span>
+                {meta.label}
+                {isCurrent ? (
+                  <span aria-hidden className="ml-auto text-foxleaf-primary">
+                    ✓
+                  </span>
+                ) : null}
+              </button>
             );
           })}
-        </ul>
+        </div>
       ) : null}
     </div>
   );
-}
-
-function dotClass(status: ReadingStatus): string {
-  switch (status) {
-    case "reading":
-      return "bg-blue-500";
-    case "want_to_read":
-      return "bg-amber-500";
-    case "read":
-      return "bg-green-500";
-    case "dnf":
-      return "bg-stone-400";
-  }
 }
